@@ -1,0 +1,22 @@
+{
+  "name": "standup_bot",
+  "version": "1.0.0",
+  "main": "src/index.js",
+  "license": "MIT",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "format": "prettier --write \"src/**/*.js\""
+  },
+  "dependencies": {
+    "node-telegram-bot-api": "^0.64.0",
+    "node-schedule": "^2.1.1",
+    "dotenv": "^16.3.1",
+    "sqlite3": "^5.1.7"
+  },
+  "devDependencies": {
+    "eslint": "^8.56.0",
+    "nodemon": "^3.0.2",
+    "prettier": "^3.1.1"
+  }
+}
