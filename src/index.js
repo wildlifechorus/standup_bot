@@ -19,6 +19,26 @@ const QUESTIONS = [
 // Store standup responses (temporary, during the Q&A session)
 const standupResponses = new Map();
 
+// Update command regex patterns to support bot username suffix
+const botCommands = {
+  start: /^\/start(?:@\w+)?$/,
+  subscribe: /^\/subscribe(?:@\w+)?$/,
+  unsubscribe: /^\/unsubscribe(?:@\w+)?$/,
+  members: /^\/members(?:@\w+)?$/,
+  replay: /^\/replay(?:@\w+)?$/,
+  standup: /^\/standup(?:@\w+)?$/,
+  skip: /^\/skip(?:@\w+)?$/,
+  vacation: /^\/vacation(?:@\w+)?$/,
+  vacationDate: /^\/vacation\s+(.+)(?:@\w+)?$/,
+  back: /^\/back(?:@\w+)?$/,
+  setTime: /^\/set_time\s+(.+)(?:@\w+)?$/,
+  timezone: /^\/timezone(?:@\w+)?$/,
+  timezoneSet: /^\/timezone\s+(.+)(?:@\w+)?$/,
+  lateReminder: /^\/late_reminder\s+(on|off)(?:@\w+)?$/,
+  lateReminderHours: /^\/late_reminder_hours\s+(\d+)(?:@\w+)?$/,
+  status: /^\/status(?:@\w+)?$/,
+};
+
 /**
  * Initialize the bot and required services
  */
@@ -100,7 +120,7 @@ async function commandGuard(msg, handler) {
 /**
  * Start command handler
  */
-bot.onText(/\/start/, (msg) =>
+bot.onText(botCommands.start, (msg) =>
   commandGuard(msg, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
@@ -136,7 +156,7 @@ bot.onText(/\/start/, (msg) =>
 /**
  * Subscribe command handler
  */
-bot.onText(/\/subscribe/, (msg) =>
+bot.onText(botCommands.subscribe, (msg) =>
   commandGuard(msg, async (msg) => {
     const userId = msg.from.id;
     const username = msg.from.username || msg.from.first_name;
@@ -170,7 +190,7 @@ bot.onText(/\/subscribe/, (msg) =>
 /**
  * Unsubscribe command handler
  */
-bot.onText(/\/unsubscribe/, (msg) =>
+bot.onText(botCommands.unsubscribe, (msg) =>
   commandGuard(msg, async (msg) => {
     const userId = msg.from.id;
 
@@ -201,7 +221,7 @@ bot.onText(/\/unsubscribe/, (msg) =>
 /**
  * List subscribed members command handler
  */
-bot.onText(/\/members/, (msg) =>
+bot.onText(botCommands.members, (msg) =>
   commandGuard(msg, async (msg) => {
     try {
       const subscribers = await db.getAllSubscribers();
@@ -229,7 +249,7 @@ bot.onText(/\/members/, (msg) =>
 /**
  * Replay today's standups command handler
  */
-bot.onText(/\/replay/, (msg) =>
+bot.onText(botCommands.replay, (msg) =>
   commandGuard(msg, async (msg) => {
     try {
       const todayStandups = await db.getTodayStandups();
@@ -282,7 +302,7 @@ bot.onText(/\/replay/, (msg) =>
 /**
  * Manual standup trigger for testing
  */
-bot.onText(/\/standup/, (msg) =>
+bot.onText(botCommands.standup, (msg) =>
   commandGuard(msg, async (msg) => {
     const userId = msg.from.id;
     const chatId = msg.chat.id;
@@ -568,7 +588,7 @@ async function scheduleStandups() {
 /**
  * Skip command handler for optional questions
  */
-bot.onText(/\/skip/, (msg) =>
+bot.onText(botCommands.skip, (msg) =>
   commandGuard(msg, async (msg) => {
     const userId = msg.from.id;
     const chatId = msg.chat.id;
@@ -617,7 +637,7 @@ bot.onText(/\/skip/, (msg) =>
  * Vacation mode command handler
  * Usage: /vacation dd/mm/yyyy
  */
-bot.onText(/\/vacation (.+)/, (msg, match) =>
+bot.onText(botCommands.vacationDate, (msg, match) =>
   commandGuard(msg, async (msg) => {
     const userId = msg.from.id;
     const chatId = msg.chat.id;
@@ -671,7 +691,7 @@ bot.onText(/\/vacation (.+)/, (msg, match) =>
 /**
  * Return from vacation command handler
  */
-bot.onText(/\/back/, async (msg) => {
+bot.onText(botCommands.back, async (msg) => {
   const userId = msg.from.id;
   const chatId = msg.chat.id;
 
@@ -698,7 +718,7 @@ bot.onText(/\/back/, async (msg) => {
 });
 
 // Add a handler for incorrect vacation command usage
-bot.onText(/\/vacation$/, (msg) =>
+bot.onText(botCommands.vacation, (msg) =>
   commandGuard(msg, async (msg) => {
     bot.sendMessage(
       msg.chat.id,
@@ -714,84 +734,86 @@ bot.onText(/\/vacation$/, (msg) =>
  * Set standup time command handler (admin only)
  * Usage: /set_time HH:mm
  */
-bot.onText(/\/set_time (.+)/, async (msg, match) => {
-  const userId = msg.from.id;
-  const chatId = msg.chat.id;
-  const timeStr = match[1];
+bot.onText(botCommands.setTime, (msg, match) =>
+  commandGuard(msg, async (msg) => {
+    const userId = msg.from.id;
+    const chatId = msg.chat.id;
+    const timeStr = match[1];
 
-  try {
-    // Debug logging
-    console.log('User attempting admin command:', {
-      userId,
-      username: msg.from.username,
-      firstName: msg.from.first_name,
-      lastName: msg.from.last_name,
-    });
+    try {
+      // Debug logging
+      console.log('User attempting admin command:', {
+        userId,
+        username: msg.from.username,
+        firstName: msg.from.first_name,
+        lastName: msg.from.last_name,
+      });
 
-    // Check if user is admin
-    if (!(await db.isAdmin(userId))) {
+      // Check if user is admin
+      if (!(await db.isAdmin(userId))) {
+        bot.sendMessage(
+          chatId,
+          '⚠️ This command is only available to administrators.'
+        );
+        return;
+      }
+
+      // Parse time format HH:mm or HH
+      let hour,
+        minute = 0;
+      if (timeStr.includes(':')) {
+        [hour, minute] = timeStr.split(':').map((num) => parseInt(num, 10));
+      } else {
+        hour = parseInt(timeStr, 10);
+      }
+
+      // Validate time format
+      if (
+        isNaN(hour) ||
+        isNaN(minute) ||
+        hour < 0 ||
+        hour > 23 ||
+        minute < 0 ||
+        minute > 59
+      ) {
+        bot.sendMessage(
+          chatId,
+          '⚠️ Please provide a valid time in 24h format.\n' +
+            'Usage: `/set_time HH:mm` or `/set_time HH`\n' +
+            'Examples:\n' +
+            '• `/set_time 9:30` for 9:30 AM\n' +
+            '• `/set_time 14:15` for 2:15 PM\n' +
+            '• `/set_time 9` for 9:00 AM',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      // Update standup time
+      await db.setStandupTime(hour, minute);
+
+      // Reschedule daily standups
+      scheduleStandups();
+
       bot.sendMessage(
         chatId,
-        '⚠️ This command is only available to administrators.'
+        `✅ Daily standup time has been set to ${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')} (Lisbon time).`
       );
-      return;
-    }
-
-    // Parse time format HH:mm or HH
-    let hour,
-      minute = 0;
-    if (timeStr.includes(':')) {
-      [hour, minute] = timeStr.split(':').map((num) => parseInt(num, 10));
-    } else {
-      hour = parseInt(timeStr, 10);
-    }
-
-    // Validate time format
-    if (
-      isNaN(hour) ||
-      isNaN(minute) ||
-      hour < 0 ||
-      hour > 23 ||
-      minute < 0 ||
-      minute > 59
-    ) {
+    } catch (error) {
+      console.error('Error in set_time handler:', error);
       bot.sendMessage(
         chatId,
-        '⚠️ Please provide a valid time in 24h format.\n' +
-          'Usage: `/set_time HH:mm` or `/set_time HH`\n' +
-          'Examples:\n' +
-          '• `/set_time 9:30` for 9:30 AM\n' +
-          '• `/set_time 14:15` for 2:15 PM\n' +
-          '• `/set_time 9` for 9:00 AM',
-        { parse_mode: 'Markdown' }
+        '❌ Sorry, there was an error setting the standup time. Please try again later.'
       );
-      return;
     }
-
-    // Update standup time
-    await db.setStandupTime(hour, minute);
-
-    // Reschedule daily standups
-    scheduleStandups();
-
-    bot.sendMessage(
-      chatId,
-      `✅ Daily standup time has been set to ${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')} (Lisbon time).`
-    );
-  } catch (error) {
-    console.error('Error in set_time handler:', error);
-    bot.sendMessage(
-      chatId,
-      '❌ Sorry, there was an error setting the standup time. Please try again later.'
-    );
-  }
-});
+  })
+);
 
 /**
  * Timezone command handler
  * Lists available timezones when used without parameters
  */
-bot.onText(/^\/timezone$/, (msg) =>
+bot.onText(botCommands.timezone, (msg) =>
   commandGuard(msg, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
@@ -841,7 +863,7 @@ bot.onText(/^\/timezone$/, (msg) =>
  * Timezone setter command handler
  * Usage: /timezone Europe/London
  */
-bot.onText(/^\/timezone (.+)$/, (msg, match) =>
+bot.onText(botCommands.timezoneSet, (msg, match) =>
   commandGuard(msg, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
@@ -892,7 +914,7 @@ bot.onText(/^\/timezone (.+)$/, (msg, match) =>
  * Late reminder control command handler (admin only)
  * Usage: /late_reminder on|off
  */
-bot.onText(/\/late_reminder\s+(on|off)$/, (msg, match) =>
+bot.onText(botCommands.lateReminder, (msg, match) =>
   commandGuard(msg, async (msg) => {
     const userId = msg.from.id;
     const chatId = msg.chat.id;
@@ -932,7 +954,7 @@ bot.onText(/\/late_reminder\s+(on|off)$/, (msg, match) =>
  * Late reminder hours command handler (admin only)
  * Usage: /late_reminder_hours N
  */
-bot.onText(/\/late_reminder_hours\s+(\d+)$/, (msg, match) =>
+bot.onText(botCommands.lateReminderHours, (msg, match) =>
   commandGuard(msg, async (msg) => {
     const userId = msg.from.id;
     const chatId = msg.chat.id;
@@ -1006,7 +1028,7 @@ async function verifyChannelAccess() {
  * Status command handler
  * Shows who has/hasn't submitted standup today
  */
-bot.onText(/^\/status$/, (msg) =>
+bot.onText(botCommands.status, (msg) =>
   commandGuard(msg, async (msg) => {
     const chatId = msg.chat.id;
 
@@ -1025,18 +1047,23 @@ bot.onText(/^\/status$/, (msg) =>
       );
       const onVacation = status.filter((s) => s.isOnVacation);
 
-      let message = '📊 *Standup Status Report*\n\n';
+      // Escape special characters in usernames
+      const escapeMarkdown = (text) => {
+        return text.replace(/[_*[\]()~`>#+=|{}.!-]/g, '\\$&');
+      };
+
+      let message = '📊 Standup Status Report\n\n';
 
       if (submitted.length > 0) {
         message +=
-          '✅ *Submitted:*\n' +
+          '✅ Submitted:\n' +
           submitted
             .map((s) => {
               const time = new Date(s.submittedAt).toLocaleTimeString('en-US', {
                 hour: '2-digit',
                 minute: '2-digit',
               });
-              return `• @${s.username} (${time})`;
+              return `• @${escapeMarkdown(s.username)} (${time})`;
             })
             .join('\n') +
           '\n\n';
@@ -1044,28 +1071,33 @@ bot.onText(/^\/status$/, (msg) =>
 
       if (notSubmitted.length > 0) {
         message +=
-          '⏳ *Pending:*\n' +
-          notSubmitted.map((s) => `• @${s.username}`).join('\n') +
+          '⏳ Pending:\n' +
+          notSubmitted
+            .map((s) => `• @${escapeMarkdown(s.username)}`)
+            .join('\n') +
           '\n\n';
       }
 
       if (onVacation.length > 0) {
         message +=
-          '🏖 *On Vacation:*\n' +
+          '�� On Vacation:\n' +
           onVacation
             .map((s) => {
               const until = s.vacationUntil
                 ? ` (until ${new Date(s.vacationUntil).toLocaleDateString()})`
                 : '';
-              return `• @${s.username}${until}`;
+              return `• @${escapeMarkdown(s.username)}${until}`;
             })
             .join('\n') +
           '\n\n';
       }
 
-      message += `📈 Participation: ${submitted.length}/${status.length - onVacation.length} members`;
+      message += `📈 Participation: ${submitted.length}/${
+        status.length - onVacation.length
+      } members`;
 
-      bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+      // Send without Markdown parsing first as a test
+      bot.sendMessage(chatId, message);
     } catch (error) {
       console.error('Error in status handler:', error);
       bot.sendMessage(
