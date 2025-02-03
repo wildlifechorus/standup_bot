@@ -244,10 +244,10 @@ bot.onText(botCommands.members, (msg) =>
       }
 
       const membersList =
-        '👥 *Subscribed Members:*\n\n' +
+        '👥 Subscribed Members:\n\n' +
         subscribers.map((sub) => `• @${sub.username}`).join('\n');
 
-      bot.sendMessage(msg.chat.id, membersList, { parse_mode: 'Markdown' });
+      bot.sendMessage(msg.chat.id, membersList);
     } catch (error) {
       console.error('Error in members handler:', error);
       bot.sendMessage(
