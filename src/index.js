@@ -19,7 +19,7 @@ const QUESTIONS = [
 // Store standup responses (temporary, during the Q&A session)
 const standupResponses = new Map();
 
-// Update command regex patterns to support bot username suffix
+// Update command regex patterns to support bot username suffix and improve validation
 const botCommands = {
   start: /^\/start(?:@\w+)?$/,
   subscribe: /^\/subscribe(?:@\w+)?$/,
@@ -29,14 +29,26 @@ const botCommands = {
   standup: /^\/standup(?:@\w+)?$/,
   skip: /^\/skip(?:@\w+)?$/,
   vacation: /^\/vacation(?:@\w+)?$/,
-  vacationDate: /^\/vacation\s+(.+)(?:@\w+)?$/,
+  // Strict date format dd/mm/yyyy, with bot username before or after
+  vacationDate:
+    /^\/vacation(?:@\w+)?\s+(\d{2}\/\d{2}\/\d{4})|^\/vacation\s+(\d{2}\/\d{2}\/\d{4})(?:@\w+)?$/,
   back: /^\/back(?:@\w+)?$/,
-  setTime: /^\/set_time\s+(.+)(?:@\w+)?$/,
+  // Time format HH:mm or HH, with bot username before or after
+  setTime:
+    /^\/set_time(?:@\w+)?\s+(\d{1,2}(?::\d{2})?)|^\/set_time\s+(\d{1,2}(?::\d{2})?)(?:@\w+)?$/,
   timezone: /^\/timezone(?:@\w+)?$/,
-  timezoneSet: /^\/timezone\s+(.+)(?:@\w+)?$/,
-  lateReminder: /^\/late_reminder\s+(on|off)(?:@\w+)?$/,
-  lateReminderHours: /^\/late_reminder_hours\s+(\d+)(?:@\w+)?$/,
+  // Timezone format Region/City, with bot username before or after
+  timezoneSet:
+    /^\/timezone(?:@\w+)?\s+([A-Za-z_]+\/[A-Za-z_]+)|^\/timezone\s+([A-Za-z_]+\/[A-Za-z_]+)(?:@\w+)?$/,
+  // Late reminder on/off, with bot username before or after
+  lateReminder:
+    /^\/late_reminder(?:@\w+)?\s+(on|off)|^\/late_reminder\s+(on|off)(?:@\w+)?$/,
+  // Late reminder hours (1-12), with bot username before or after
+  lateReminderHours:
+    /^\/late_reminder_hours(?:@\w+)?\s+(\d{1,2})|^\/late_reminder_hours\s+(\d{1,2})(?:@\w+)?$/,
   status: /^\/status(?:@\w+)?$/,
+  // Summary with optional days parameter, with bot username before or after
+  summary: /^\/summary(?:@\w+)?(?:\s+(\d+))?|^\/summary(?:\s+(\d+))?(?:@\w+)?$/,
 };
 
 /**
@@ -641,7 +653,7 @@ bot.onText(botCommands.vacationDate, (msg, match) =>
   commandGuard(msg, async (msg) => {
     const userId = msg.from.id;
     const chatId = msg.chat.id;
-    const dateStr = match[1];
+    const dateStr = match[1] || match[2];
 
     try {
       // Check if user is subscribed
@@ -657,12 +669,25 @@ bot.onText(botCommands.vacationDate, (msg, match) =>
       const [day, month, year] = dateStr.split('/').map(Number);
       const endDate = new Date(year, month - 1, day); // month is 0-based
       const today = new Date();
+      today.setHours(0, 0, 0, 0); // Set to start of day for comparison
 
       // Validate date
-      if (isNaN(endDate.getTime()) || endDate < today) {
+      if (isNaN(endDate.getTime())) {
         bot.sendMessage(
           chatId,
-          '⚠️ Please provide a valid future date in format dd/mm/yyyy.\n' +
+          '⚠️ Please provide a valid date in format dd/mm/yyyy.\n' +
+            'Example: `/vacation 31/12/2024`',
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      // Check if date is in the past
+      if (endDate < today) {
+        bot.sendMessage(
+          chatId,
+          '⚠️ The vacation end date cannot be in the past.\n' +
+            'Please provide a future date in format dd/mm/yyyy.\n' +
             'Example: `/vacation 31/12/2024`',
           { parse_mode: 'Markdown' }
         );
@@ -738,7 +763,7 @@ bot.onText(botCommands.setTime, (msg, match) =>
   commandGuard(msg, async (msg) => {
     const userId = msg.from.id;
     const chatId = msg.chat.id;
-    const timeStr = match[1];
+    const timeStr = match[1] || match[2];
 
     try {
       // Debug logging
@@ -867,7 +892,7 @@ bot.onText(botCommands.timezoneSet, (msg, match) =>
   commandGuard(msg, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-    const timezone = match[1];
+    const timezone = match[1] || match[2];
 
     try {
       // Check if user is subscribed
@@ -918,7 +943,7 @@ bot.onText(botCommands.lateReminder, (msg, match) =>
   commandGuard(msg, async (msg) => {
     const userId = msg.from.id;
     const chatId = msg.chat.id;
-    const enabled = match[1] === 'on';
+    const enabled = (match[1] || match[2]) === 'on';
 
     try {
       // Check if user is admin
@@ -958,7 +983,7 @@ bot.onText(botCommands.lateReminderHours, (msg, match) =>
   commandGuard(msg, async (msg) => {
     const userId = msg.from.id;
     const chatId = msg.chat.id;
-    const hours = parseInt(match[1], 10);
+    const hours = parseInt(match[1] || match[2], 10);
 
     try {
       // Check if user is admin
@@ -1047,11 +1072,6 @@ bot.onText(botCommands.status, (msg) =>
       );
       const onVacation = status.filter((s) => s.isOnVacation);
 
-      // Escape special characters in usernames
-      const escapeMarkdown = (text) => {
-        return text.replace(/[_*[\]()~`>#+=|{}.!-]/g, '\\$&');
-      };
-
       let message = '📊 Standup Status Report\n\n';
 
       if (submitted.length > 0) {
@@ -1063,7 +1083,7 @@ bot.onText(botCommands.status, (msg) =>
                 hour: '2-digit',
                 minute: '2-digit',
               });
-              return `• @${escapeMarkdown(s.username)} (${time})`;
+              return `• @${s.username} (${time})`;
             })
             .join('\n') +
           '\n\n';
@@ -1072,21 +1092,19 @@ bot.onText(botCommands.status, (msg) =>
       if (notSubmitted.length > 0) {
         message +=
           '⏳ Pending:\n' +
-          notSubmitted
-            .map((s) => `• @${escapeMarkdown(s.username)}`)
-            .join('\n') +
+          notSubmitted.map((s) => `• @${s.username}`).join('\n') +
           '\n\n';
       }
 
       if (onVacation.length > 0) {
         message +=
-          '�� On Vacation:\n' +
+          '🏖 On Vacation:\n' +
           onVacation
             .map((s) => {
               const until = s.vacationUntil
                 ? ` (until ${new Date(s.vacationUntil).toLocaleDateString()})`
                 : '';
-              return `• @${escapeMarkdown(s.username)}${until}`;
+              return `• @${s.username}${until}`;
             })
             .join('\n') +
           '\n\n';
@@ -1096,7 +1114,6 @@ bot.onText(botCommands.status, (msg) =>
         status.length - onVacation.length
       } members`;
 
-      // Send without Markdown parsing first as a test
       bot.sendMessage(chatId, message);
     } catch (error) {
       console.error('Error in status handler:', error);
