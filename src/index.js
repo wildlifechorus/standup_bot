@@ -11,7 +11,7 @@ const userStates = new Map();
 
 // Questions for the standup
 const QUESTIONS = [
-  'What did you work on yesterday?',
+  'What did you work on yesterday? (press /skip if Monday)',
   'What will you work on today?',
   'Are there any blockers or impediments? (optional - press /skip if none)',
 ];
@@ -429,10 +429,14 @@ function formatStandupResponse(response) {
     timeStyle: 'short',
   });
 
-  let message =
-    `📊 *Daily Standup - @${response.username}*\n\n` +
-    `⏪ *Yesterday:*\n${response.answers[0]}\n\n` +
-    `⏩ *Today:*\n${response.answers[1]}`;
+  let message = `📊 *Daily Standup - @${response.username}*\n\n`;
+
+  // Only add yesterday section if it's not empty (not skipped)
+  if (response.answers[0] && response.answers[0].trim()) {
+    message += `⏪ *Yesterday:*\n${response.answers[0]}\n\n`;
+  }
+
+  message += `⏩ *Today:*\n${response.answers[1]}`;
 
   // Only add blockers section if there are blockers
   if (response.answers[2] && response.answers[2].trim()) {
@@ -610,37 +614,56 @@ bot.onText(botCommands.skip, (msg) =>
     }
 
     const state = userStates.get(userId);
-    // Only allow skipping the blockers question
-    if (state.currentQuestion === 2) {
-      const response = standupResponses.get(userId);
+    // Allow skipping the first question (yesterday) and the last question (blockers)
+    if (state.currentQuestion === 0 || state.currentQuestion === 2) {
+      // Initialize response object if it doesn't exist
+      let response = standupResponses.get(userId);
+      if (!response) {
+        response = {
+          username: msg.from.username || msg.from.first_name,
+          answers: ['', '', ''],
+        };
+      }
+
       response.answers[state.currentQuestion] = '';
       standupResponses.set(userId, response);
 
-      // Complete the standup
-      userStates.delete(userId);
+      // Move to next question or finish
+      if (state.currentQuestion < QUESTIONS.length - 1) {
+        state.currentQuestion++;
+        bot.sendMessage(chatId, QUESTIONS[state.currentQuestion]);
+      } else {
+        // Complete the standup
+        userStates.delete(userId);
 
-      // Save to database
-      await db.addStandup(
-        userId,
-        response.username,
-        response.answers[0],
-        response.answers[1],
-        response.answers[2]
+        // Save to database
+        await db.addStandup(
+          userId,
+          response.username,
+          response.answers[0],
+          response.answers[1],
+          response.answers[2]
+        );
+
+        // Format response for channel
+        const formattedResponse = formatStandupResponse(response);
+
+        // Send to channel
+        bot.sendMessage(process.env.TELEGRAM_CHANNEL_ID, formattedResponse, {
+          parse_mode: 'Markdown',
+        });
+
+        // Confirm to user
+        bot.sendMessage(chatId, 'Thank you! Your standup has been submitted.');
+
+        // Clear the temporary response
+        standupResponses.delete(userId);
+      }
+    } else {
+      bot.sendMessage(
+        chatId,
+        '⚠️ This question cannot be skipped. Please provide an answer.'
       );
-
-      // Format response for channel
-      const formattedResponse = formatStandupResponse(response);
-
-      // Send to channel
-      bot.sendMessage(process.env.TELEGRAM_CHANNEL_ID, formattedResponse, {
-        parse_mode: 'Markdown',
-      });
-
-      // Confirm to user
-      bot.sendMessage(chatId, 'Thank you! Your standup has been submitted.');
-
-      // Clear the temporary response
-      standupResponses.delete(userId);
     }
   })
 );
