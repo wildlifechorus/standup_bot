@@ -990,8 +990,8 @@ async function verifyChannelAccess() {
 
     // Check bot's access to the channel
     const botMember = await bot.getChatMember(channelId, botInfo.id);
-    if (!['administrator', 'member'].includes(botMember.status)) {
-      throw new Error('Bot must be a member or admin of the specified channel');
+    if (botMember.status !== 'administrator') {
+      throw new Error('Bot must be an administrator of the specified channel');
     }
 
     // Get channel info
@@ -1001,3 +1001,77 @@ async function verifyChannelAccess() {
     throw new Error(`Channel access verification failed: ${error.message}`);
   }
 }
+
+/**
+ * Status command handler
+ * Shows who has/hasn't submitted standup today
+ */
+bot.onText(/^\/status$/, (msg) =>
+  commandGuard(msg, async (msg) => {
+    const chatId = msg.chat.id;
+
+    try {
+      const status = await db.getStandupStatus();
+
+      if (status.length === 0) {
+        bot.sendMessage(chatId, '👥 No members are currently subscribed.');
+        return;
+      }
+
+      const now = new Date();
+      const submitted = status.filter((s) => s.hasSubmitted);
+      const notSubmitted = status.filter(
+        (s) => !s.hasSubmitted && !s.isOnVacation
+      );
+      const onVacation = status.filter((s) => s.isOnVacation);
+
+      let message = '📊 *Standup Status Report*\n\n';
+
+      if (submitted.length > 0) {
+        message +=
+          '✅ *Submitted:*\n' +
+          submitted
+            .map((s) => {
+              const time = new Date(s.submittedAt).toLocaleTimeString('en-US', {
+                hour: '2-digit',
+                minute: '2-digit',
+              });
+              return `• @${s.username} (${time})`;
+            })
+            .join('\n') +
+          '\n\n';
+      }
+
+      if (notSubmitted.length > 0) {
+        message +=
+          '⏳ *Pending:*\n' +
+          notSubmitted.map((s) => `• @${s.username}`).join('\n') +
+          '\n\n';
+      }
+
+      if (onVacation.length > 0) {
+        message +=
+          '🏖 *On Vacation:*\n' +
+          onVacation
+            .map((s) => {
+              const until = s.vacationUntil
+                ? ` (until ${new Date(s.vacationUntil).toLocaleDateString()})`
+                : '';
+              return `• @${s.username}${until}`;
+            })
+            .join('\n') +
+          '\n\n';
+      }
+
+      message += `📈 Participation: ${submitted.length}/${status.length - onVacation.length} members`;
+
+      bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+    } catch (error) {
+      console.error('Error in status handler:', error);
+      bot.sendMessage(
+        chatId,
+        '❌ Sorry, there was an error getting the status.'
+      );
+    }
+  })
+);
